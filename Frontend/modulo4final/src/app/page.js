@@ -5,19 +5,25 @@ import {
   useDisconnect,
   useReadContract,
 } from "wagmi";
-
+import { useState } from "react";
+import { ethers } from "ethers";
 import { CONTRACT_ABI } from "./abi";
 
-//COMPONENTS
-import WriteContract from "./WriteContract";
 
 function App() {
   const CONTRACT_ADDRESS = "0x1A6497397D9c0ac0557bfB396a937343a76750D8";
-  const MY_ADDRESS = "0x0e827765391CEeABa34354747248dCA859E3c1Eb";
+
 
   const account = useAccount();
-  const { connectors, connect, status, error } = useConnect();
+  const { connectors, connect, status, error: connectError } = useConnect();
   const { disconnect } = useDisconnect();
+
+
+  const [stakeAmount, setStakeAmount] = useState("");
+  const [error, setError] = useState("");
+  const [isStaking, setIsStaking] = useState(false);
+  const [transactionHash, setTransactionHash] = useState("");
+
 
   const result = useReadContract({
     abi: CONTRACT_ABI,
@@ -27,14 +33,65 @@ function App() {
   });
 
 
+  const handleStake = async () => {
+    console.log("Stake button pressed");
+    console.log("Stake amount:", stakeAmount);
+    console.log("Account status:", account.status);
+    console.log("Account address:", account.address);
+
+
+    if (!stakeAmount) {
+      console.error("Stake amount is empty");
+      setError("Stake amount is empty");
+      return;
+    }
+
+
+    setIsStaking(true);
+    setError("");
+    setTransactionHash("");
+
+
+    try {
+      if (typeof window.ethereum !== 'undefined') {
+        await window.ethereum.request({ method: 'eth_requestAccounts' });
+        const provider = new ethers.providers.Web3Provider(window.ethereum);
+        const signer = provider.getSigner();
+        const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
+
+
+        const amountInWei = ethers.utils.parseEther(stakeAmount);
+       
+        // Call the stake function
+        const tx = await contract.stake({ value: amountInWei });
+
+
+        setTransactionHash(tx.hash);
+        console.log("Transaction sent:", tx.hash);
+
+
+        // Wait for the transaction to be mined
+        await tx.wait();
+        console.log("Transaction confirmed");
+      } else {
+        throw new Error("Ethereum object not found, do you have MetaMask installed?");
+      }
+    } catch (error) {
+      console.error("Stake execution error:", error);
+      setError(error.message);
+    } finally {
+      setIsStaking(false);
+    }
+  };
+
+
   return (
-    <div >
-      <div >
+    <>
+      <div>
         <h1>Stacker</h1>
+        {result?.data && <p>My balance: {ethers.utils.formatEther(result.data)} ETH</p>}
         <h2>Account</h2>
-        {account.isConnected && (
-          <p>My balance: {Number(result.data) / 10 ** 18}</p>
-        )}
+
 
         <div>
           status: {account.status}
@@ -44,24 +101,15 @@ function App() {
           chainId: {account.chainId}
         </div>
 
-        {account.isConnected && (
+
+        {account.status === "connected" && (
           <button type="button" onClick={() => disconnect()}>
             Disconnect
           </button>
         )}
-
-        <h2>
-        Staking Section
-        </h2>
-        <div className=" mt-6">
-
-        {account.isConnected && <WriteContract/>}
-
-        </div>
-
       </div>
-        
-      
+
+
       <div>
         <h2>Connect</h2>
         {connectors.slice(0, 1).map((connector) => (
@@ -73,11 +121,32 @@ function App() {
             {connector.name}
           </button>
         ))}
-        <div>{status}</div>
-        <div>{error?.message}</div>
+        <div>Connection status: {status}</div>
+        {connectError && <div>Connection error: {connectError.message}</div>}
       </div>
-    </div>
+
+
+      <div>
+        <h2>Stake Tokens</h2>
+        <input
+          type="number"
+          value={stakeAmount}
+          onChange={(e) => setStakeAmount(e.target.value)}
+          placeholder="Enter amount to stake in ETH"
+        />
+        <button
+          onClick={handleStake}
+          disabled={!stakeAmount || isStaking}
+        >
+          {isStaking ? "Processing..." : "Stake"}
+        </button>
+        {error && <div>Error: {error}</div>}
+        {transactionHash && <div>Transaction sent: {transactionHash}</div>}
+      </div>
+    </>
   );
 }
 
+
 export default App;
+
